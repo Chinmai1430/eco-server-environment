@@ -1,7 +1,7 @@
 name: eco-server-environment
 version: 1.0.0
 description: "AI-powered environmental restoration and pollution management system"
-author: "Chinmai B"  # Replace with your name
+author: "Chinmai B"
 license: "MIT"
 
 dependencies:
