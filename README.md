@@ -253,3 +253,4 @@ eco_server_env/
     ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
     └── Dockerfile         # Container image definition
 ```
+update
