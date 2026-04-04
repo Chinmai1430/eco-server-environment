@@ -5,33 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "eco-server-environment"
 version = "1.0.0"
-description = "AI-powered environmental restoration and pollution management system"
-authors = [
-    {name = "Chinmai B"}
-]
+description = "AI-powered environmental restoration environment"
+authors = [{name = "Chinmai B"}]
 license = {text = "MIT"}
-readme = "README.md"
 requires-python = ">=3.8"
-dependencies = [
-    "openenv-core>=0.2.0",
-    "numpy>=1.21.0",
-    "fastapi>=0.68.0",
-    "uvicorn>=0.15.0",
-    "matplotlib>=3.5.0"
-]
+dependencies = ["openenv-core>=0.2.0"]
 
 [project.scripts]
-server = "server:app"
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=6.0",
-    "black>=21.0",
-    "flake8>=3.9.0"
-]
+server = "server.app:app"
 
 [tool.setuptools]
 packages = ["server"]
-
-[tool.setuptools.package-data]
-server = ["*.py"]
