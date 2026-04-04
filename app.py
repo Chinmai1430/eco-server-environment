@@ -1,8 +1,14 @@
 # server/app.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .eco_server_env_environment import EcoServerEnv, EcoServerAction
-import json
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import after path modification
+from server.eco_server_env_environment import EcoServerEnv, EcoServerAction
 
 app = FastAPI(title="EcoServer Environment API")
 
@@ -25,7 +31,8 @@ async def root():
         "endpoints": {
             "reset": "POST /reset - Reset environment",
             "step": "POST /step - Take action", 
-            "state": "GET /state - Get current state"
+            "state": "GET /state - Get current state",
+            "health": "GET /health - Health check"
         }
     }
 
