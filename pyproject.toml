@@ -10,9 +10,8 @@ requires-python = ">=3.9"
 dependencies = [
     "fastapi",
     "uvicorn",
-    "openenv-core>=0.2.0" # <-- This fixes the 'Missing required dependency' error
-    # NOTE: If you have other packages in your requirements.txt, list them here too!
+    "openenv-core>=0.2.0" 
 ]
 
 [project.scripts]
-server = "app:main" # <-- This fixes the 'Missing [project.scripts] server entry point' error
+server = "server.app:main"
