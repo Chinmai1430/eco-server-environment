@@ -1,14 +1,9 @@
-# server/app.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import sys
-import os
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Import after path modification
-from server.eco_server_env_environment import EcoServerEnv, EcoServerAction
+# Simplified import - Since all files are in the main directory now, 
+# we don't need the sys.path hack or the "server." prefix!
+from eco_server_env_environment import EcoServerEnv, EcoServerAction
 
 app = FastAPI(title="EcoServer Environment API")
 
@@ -75,3 +70,12 @@ async def get_state():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "message": "EcoServer environment is running"}
+
+# --- ADDED FOR SCALER OPENENV HACKATHON VALIDATOR ---
+def main():
+    import uvicorn
+    # This ensures the autograder starts your app on the correct port
+    uvicorn.run("app:app", host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()
