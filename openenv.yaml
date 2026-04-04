@@ -1,0 +1,25 @@
+name: eco-server-environment
+version: 1.0.0
+description: "AI-powered environmental restoration and pollution management system"
+author: "Chinmai B"  # Replace with your name
+license: "MIT"
+
+dependencies:
+  - python>=3.8
+  - numpy
+  - fastapi
+  - uvicorn
+
+environment:
+  type: "reinforcement-learning"
+  domain: "environmental-restoration"
+  difficulty: "medium"
+  observation_space: "grid-based"
+  action_space: "discrete"
+
+tags:
+  - "environment"
+  - "climate"
+  - "pollution"
+  - "restoration"
+  - "sustainability"
