@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Simplified import - Since all files are in the main directory now, 
 # we don't need the sys.path hack or the "server." prefix!
-from eco_server_env_environment import EcoServerEnv, EcoServerAction
+from server.eco_server_env_environment import EcoServerEnv, EcoServerAction
 
 app = FastAPI(title="EcoServer Environment API")
 
