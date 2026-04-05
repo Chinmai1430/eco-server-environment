@@ -9,7 +9,11 @@ from typing import Optional
 import uvicorn
 
 from server.eco_server_env_environment import EcoServerEnv, EcoServerAction
-from visualization import visualize_grid, visualize_detailed_stats
+try:
+    from visualization import visualize_grid, visualize_detailed_stats
+except ImportError:
+    def visualize_grid(grid): pass
+    def visualize_detailed_stats(obs): pass
 
 # ─── App & Global State ───────────────────────────────────────────────────────
 app = FastAPI(title="EcoServer Inference API")
