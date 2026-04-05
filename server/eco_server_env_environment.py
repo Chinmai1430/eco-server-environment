@@ -1,270 +1,362 @@
-# eco_server_env_environment.py
+# server/eco_server_env_environment.py
+from __future__ import annotations
 import random
-import numpy as np
-from typing import List, Optional, Tuple
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
+from typing import Optional, List, Tuple
 
-# Define data classes for the environment
+
+# ── Action ────────────────────────────────────────────────────────────────────
 @dataclass
 class EcoServerAction:
-    """Action that can be taken in the environment"""
-    action_type: str  # "plant_tree", "remove_pollution", "monitor", "develop"
-    x: Optional[int] = None
-    y: Optional[int] = None
+    action_type: str          # See ACTION_TYPES below
+    x: Optional[int] = None  # Grid coordinate
+    y: Optional[int] = None  # Grid coordinate
 
+    ACTION_TYPES = [
+        "plant_tree",         # Increases green cover, reduces heat
+        "remove_pollution",   # Cleans a polluted cell
+        "monitor",            # Observe without side effects
+        "develop",            # Adds infrastructure, increases load & heat
+        "install_solar",      # Adds renewable energy to a cell
+        "cool_server",        # Reduces temperature of a hot server cell
+        "upgrade_efficiency", # Improves server efficiency, reduces energy use
+        "decommission",       # Shuts down an overloaded server cell
+    ]
+
+
+# ── Cell Types ────────────────────────────────────────────────────────────────
+CELL_EMPTY      = 0
+CELL_SERVER     = 1
+CELL_TREE       = 2
+CELL_POLLUTED   = 3
+CELL_SOLAR      = 4
+CELL_HOT_SERVER = 5  # Overheating server
+CELL_EFFICIENT  = 6  # Upgraded efficient server
+
+
+# ── Observation ───────────────────────────────────────────────────────────────
 @dataclass
 class EcoServerObservation:
-    """What the agent observes from the environment"""
-    grid: List[List[int]]  # 2D grid representing ecosystem state
-    width: int
-    height: int
-    step: int
-    pollution_level: float
-    biodiversity_score: float
-    resources_available: int
-    total_carbon_captured: int
-    done: bool
+    # Grid state
+    grid: List[List[int]] = field(default_factory=list)
+
+    # Ecological metrics (0.0 - 1.0)
+    eco_score: float = 0.0       # Overall ecological health
+    pollution: float = 0.0       # Pollution level (lower = better)
+    green_cover: float = 0.0     # % of grid with trees/solar
+    temperature: float = 0.0     # Average server temperature (lower = better)
+
+    # Infrastructure metrics
+    energy_usage: float = 0.0    # Total energy consumption (lower = better)
+    renewable_ratio: float = 0.0 # % energy from renewables (higher = better)
+    server_load: float = 0.0     # Average server load (balanced = better)
+    uptime: float = 1.0          # System uptime (higher = better)
+
+    # Episode info
+    step: int = 0
+    done: bool = False
     reward: float = 0.0
 
-@dataclass
-class EcoServerState:
-    """Internal state of the environment"""
-    episode_id: str
-    step_count: int
-    total_pollution_removed: int
-    total_trees_planted: int
-    grid: List[List[int]]
+    # Event log
+    last_event: str = ""
 
+
+# ── Environment ───────────────────────────────────────────────────────────────
 class EcoServerEnv:
     """
-    Ecosystem Server Environment for reinforcement learning
-    Grid cell values:
-    0 = Empty land
-    1 = Healthy forest
-    2 = Polluted area
-    3 = Industrial zone
-    4 = Protected area
-    5 = Water body
+    Realistic server ecosystem management environment.
+
+    The agent manages a W×H data center grid where each cell represents
+    a physical unit (server rack, green space, solar panel, etc.).
+
+    Goals:
+    - Reduce pollution and heat
+    - Increase renewable energy ratio
+    - Maintain server uptime and balanced load
+    - Maximize overall eco_score
     """
-    
-    def __init__(self, width: int = 20, height: int = 20):
+
+    def __init__(self, width: int = 15, height: int = 15, max_steps: int = 50):
         self.width = width
         self.height = height
-        self.max_steps = 100
-        self.current_step = 0
-        
-        # Initialize grid
-        self.grid = [[0 for _ in range(width)] for _ in range(height)]
-        
-        # Environment state
-        self.pollution_level = 100.0  # Percentage
-        self.biodiversity_score = 50.0  # Percentage
-        self.resources = 100  # Resource points
-        self.carbon_captured = 0
-        self.trees_planted = 0
-        self.pollution_removed = 0
-        
-        # Episode tracking
-        self.episode_id = f"eco_{random.randint(1000, 9999)}"
-        self.done = False
-        
-        # Initialize environment
-        self._initialize_environment()
-    
-    def _initialize_environment(self):
-        """Initialize the environment with realistic ecosystem elements"""
-        # Add some initial forests
-        for _ in range(15):
-            x, y = random.randint(0, self.width-1), random.randint(0, self.height-1)
-            self.grid[y][x] = 1  # Healthy forest
-        
-        # Add some polluted areas
-        for _ in range(10):
-            x, y = random.randint(0, self.width-1), random.randint(0, self.height-1)
-            self.grid[y][x] = 2  # Polluted area
-        
-        # Add some industrial zones
-        for _ in range(5):
-            x, y = random.randint(0, self.width-1), random.randint(0, self.height-1)
-            self.grid[y][x] = 3  # Industrial zone
-        
-        # Add some water bodies
-        for _ in range(3):
-            x, y = random.randint(0, self.width-1), random.randint(0, self.height-1)
-            self.grid[y][x] = 5  # Water body
-    
+        self.max_steps = max_steps
+        self.grid: List[List[int]] = []
+        self._step = 0
+        self._obs: Optional[EcoServerObservation] = None
+        self.reset()
+
+    # ── Reset ─────────────────────────────────────────────────────────────────
     def reset(self) -> EcoServerObservation:
-        """Reset the environment to initial state"""
-        self.__init__(self.width, self.height)
-        return self._get_observation()
-    
+        """Reset to a degraded starting state — agent must improve it."""
+        self._step = 0
+        self.grid = self._generate_degraded_grid()
+        self._obs = self._compute_observation("Environment initialized.")
+        return self._obs
+
+    def _generate_degraded_grid(self) -> List[List[int]]:
+        """
+        Generate a realistic degraded data center grid:
+        - Many hot/overloaded servers
+        - Some polluted zones
+        - Few trees and no solar panels
+        """
+        grid = []
+        for y in range(self.height):
+            row = []
+            for x in range(self.width):
+                r = random.random()
+                if r < 0.40:
+                    row.append(CELL_SERVER)       # 40% normal servers
+                elif r < 0.60:
+                    row.append(CELL_HOT_SERVER)   # 20% overheating servers
+                elif r < 0.75:
+                    row.append(CELL_POLLUTED)     # 15% polluted
+                elif r < 0.85:
+                    row.append(CELL_TREE)         # 10% trees
+                elif r < 0.90:
+                    row.append(CELL_EMPTY)        # 5% empty
+                else:
+                    row.append(CELL_EFFICIENT)    # 10% efficient servers
+            grid.append(row)
+        return grid
+
+    # ── Step ──────────────────────────────────────────────────────────────────
     def step(self, action: EcoServerAction) -> EcoServerObservation:
-        """Execute one step in the environment"""
-        if self.done:
-            raise Exception("Environment is already done. Call reset() to restart.")
-        
-        self.current_step += 1
-        reward = 0.0
-        
-        # Execute action based on type
-        if action.action_type == "plant_tree" and action.x is not None and action.y is not None:
-            reward = self._plant_tree(action.x, action.y)
-        elif action.action_type == "remove_pollution" and action.x is not None and action.y is not None:
-            reward = self._remove_pollution(action.x, action.y)
-        elif action.action_type == "monitor":
-            reward = self._monitor_environment()
-        elif action.action_type == "develop" and action.x is not None and action.y is not None:
-            reward = self._develop_area(action.x, action.y)
-        
-        # Natural processes (environment evolves)
-        self._evolve_environment()
-        
-        # Check termination conditions
-        if self.current_step >= self.max_steps:
-            self.done = True
-            # Bonus for good performance
-            if self.biodiversity_score > 70:
-                reward += 50
-            if self.pollution_level < 30:
-                reward += 50
-        
-        # Update observation
-        observation = self._get_observation()
-        observation.reward = reward
-        return observation
-    
-    def _plant_tree(self, x: int, y: int) -> float:
-        """Plant a tree at given coordinates"""
-        if not (0 <= x < self.width and 0 <= y < self.height):
-            return -10  # Invalid coordinates penalty
-        
-        if self.resources < 5:
-            return -5  # Not enough resources penalty
-        
-        cell_type = self.grid[y][x]
-        if cell_type == 0:  # Empty land
-            self.grid[y][x] = 1  # Plant tree
-            self.resources -= 5
-            self.trees_planted += 1
-            self.biodiversity_score = min(100, self.biodiversity_score + 0.5)
-            return 10  # Positive reward for successful planting
-        elif cell_type == 2:  # Polluted area
-            self.grid[y][x] = 1  # Clean and plant
-            self.resources -= 8
-            self.trees_planted += 1
-            self.pollution_level = max(0, self.pollution_level - 2)
-            self.biodiversity_score = min(100, self.biodiversity_score + 1)
-            return 15  # Extra reward for cleaning polluted area
-        else:
-            return -5  # Can't plant here penalty
-    
-    def _remove_pollution(self, x: int, y: int) -> float:
-        """Remove pollution from given coordinates"""
-        if not (0 <= x < self.width and 0 <= y < self.height):
-            return -10  # Invalid coordinates penalty
-        
-        if self.resources < 3:
-            return -5  # Not enough resources penalty
-        
-        cell_type = self.grid[y][x]
-        if cell_type == 2:  # Polluted area
-            self.grid[y][x] = 0  # Clean the area
-            self.resources -= 3
-            self.pollution_removed += 1
-            self.pollution_level = max(0, self.pollution_level - 3)
-            self.carbon_captured += 2
-            return 8  # Reward for pollution removal
-        else:
-            return -2  # No pollution to remove penalty
-    
-    def _monitor_environment(self) -> float:
-        """Monitor the environment (passive action)"""
-        # Monitoring gives information but costs resources
-        if self.resources >= 1:
-            self.resources -= 1
-            # Small positive reward for gathering information
-            return 1
-        return -1  # Not enough resources
-    
-    def _develop_area(self, x: int, y: int) -> float:
-        """Develop an area (could be good or bad)"""
-        if not (0 <= x < self.width and 0 <= y < self.height):
-            return -10  # Invalid coordinates penalty
-        
-        if self.resources < 10:
-            return -5  # Not enough resources penalty
-        
-        cell_type = self.grid[y][x]
-        if cell_type == 0:  # Empty land
-            # 70% chance of sustainable development, 30% chance of pollution
-            if random.random() < 0.7:
-                self.grid[y][x] = 4  # Protected area
-                self.resources -= 10
-                self.biodiversity_score = min(100, self.biodiversity_score + 2)
-                return 15  # Sustainable development reward
-            else:
-                self.grid[y][x] = 3  # Industrial zone (polluting)
-                self.resources -= 10
-                self.pollution_level = min(100, self.pollution_level + 5)
-                return -10  # Polluting development penalty
-        else:
-            return -5  # Can't develop here penalty
-    
-    def _evolve_environment(self):
-        """Natural evolution of the environment"""
-        # Pollution spreads naturally
-        if self.pollution_level > 20:
-            for y in range(self.height):
-                for x in range(self.width):
-                    if self.grid[y][x] == 1 and random.random() < 0.1:  # Forest near pollution
-                        self.grid[y][x] = 2  # Becomes polluted
-                        self.pollution_level = min(100, self.pollution_level + 0.5)
-        
-        # Trees capture carbon over time
-        healthy_forests = sum(row.count(1) for row in self.grid)
-        self.carbon_captured += healthy_forests * 0.5
-        
-        # Biodiversity fluctuates naturally
-        self.biodiversity_score += random.uniform(-1, 1)
-        self.biodiversity_score = max(0, min(100, self.biodiversity_score))
-        
-        # Pollution reduction from carbon capture
-        if self.carbon_captured > 0:
-            self.pollution_level = max(0, self.pollution_level - (self.carbon_captured * 0.01))
-    
-    def _get_observation(self) -> EcoServerObservation:
-        """Get current observation from the environment"""
-        return EcoServerObservation(
-            grid=[row[:] for row in self.grid],  # Deep copy
-            width=self.width,
-            height=self.height,
-            step=self.current_step,
-            pollution_level=self.pollution_level,
-            biodiversity_score=self.biodiversity_score,
-            resources_available=self.resources,
-            total_carbon_captured=int(self.carbon_captured),
-            done=self.done
-        )
-    
-    @property
-    def state(self) -> EcoServerState:
-        """Get internal state of the environment"""
-        return EcoServerState(
-            episode_id=self.episode_id,
-            step_count=self.current_step,
-            total_pollution_removed=self.pollution_removed,
-            total_trees_planted=self.trees_planted,
-            grid=[row[:] for row in self.grid]  # Deep copy
+        """Execute an action and return the new observation."""
+        self._step += 1
+
+        x = action.x if action.x is not None else self.width // 2
+        y = action.y if action.y is not None else self.height // 2
+
+        # Clamp coordinates to grid bounds
+        x = max(0, min(x, self.width - 1))
+        y = max(0, min(y, self.height - 1))
+
+        event = self._apply_action(action.action_type, x, y)
+        self._apply_environment_dynamics()
+
+        done = self._step >= self.max_steps or self._check_win_condition()
+        self._obs = self._compute_observation(event, done=done)
+        return self._obs
+
+    def _apply_action(self, action_type: str, x: int, y: int) -> str:
+        """Apply action to the grid and return event description."""
+        cell = self.grid[y][x]
+
+        if action_type == "plant_tree":
+            if cell in (CELL_EMPTY, CELL_POLLUTED):
+                self.grid[y][x] = CELL_TREE
+                return f"🌳 Planted tree at ({x},{y})"
+            return f"⚠️ Cannot plant tree at ({x},{y}) - cell occupied"
+
+        elif action_type == "remove_pollution":
+            if cell == CELL_POLLUTED:
+                self.grid[y][x] = CELL_EMPTY
+                return f"✨ Removed pollution at ({x},{y})"
+            # Spread cleanup to neighbors
+            cleaned = self._clean_neighbors(x, y)
+            return f"🧹 Cleaned {cleaned} neighboring cells around ({x},{y})"
+
+        elif action_type == "monitor":
+            stats = self._get_local_stats(x, y)
+            return f"📊 Monitored ({x},{y}): {stats}"
+
+        elif action_type == "develop":
+            if cell == CELL_EMPTY:
+                self.grid[y][x] = CELL_SERVER
+                return f"🏗️ Developed server at ({x},{y})"
+            elif cell == CELL_SERVER:
+                self.grid[y][x] = CELL_HOT_SERVER
+                return f"⚠️ Overloaded server at ({x},{y})"
+            return f"⚠️ Cannot develop at ({x},{y})"
+
+        elif action_type == "install_solar":
+            if cell in (CELL_EMPTY, CELL_TREE):
+                self.grid[y][x] = CELL_SOLAR
+                return f"☀️ Installed solar panel at ({x},{y})"
+            return f"⚠️ Cannot install solar at ({x},{y})"
+
+        elif action_type == "cool_server":
+            if cell == CELL_HOT_SERVER:
+                self.grid[y][x] = CELL_SERVER
+                return f"❄️ Cooled server at ({x},{y})"
+            elif cell == CELL_SERVER:
+                return f"ℹ️ Server at ({x},{y}) already cool"
+            return f"⚠️ No server to cool at ({x},{y})"
+
+        elif action_type == "upgrade_efficiency":
+            if cell == CELL_SERVER:
+                self.grid[y][x] = CELL_EFFICIENT
+                return f"⚡ Upgraded server efficiency at ({x},{y})"
+            return f"⚠️ Cannot upgrade at ({x},{y})"
+
+        elif action_type == "decommission":
+            if cell in (CELL_SERVER, CELL_HOT_SERVER):
+                self.grid[y][x] = CELL_EMPTY
+                return f"🔌 Decommissioned server at ({x},{y})"
+            return f"⚠️ Nothing to decommission at ({x},{y})"
+
+        return f"❓ Unknown action: {action_type}"
+
+    def _apply_environment_dynamics(self):
+        """
+        Simulate realistic environment changes each step:
+        - Hot servers spread heat to neighbors
+        - Pollution spreads slowly
+        - Trees reduce nearby pollution
+        - Solar panels reduce energy demand
+        """
+        new_grid = [row[:] for row in self.grid]
+
+        for y in range(self.height):
+            for x in range(self.width):
+                cell = self.grid[y][x]
+
+                # Hot servers have a chance to spread heat
+                if cell == CELL_HOT_SERVER:
+                    for nx, ny in self._neighbors(x, y):
+                        if self.grid[ny][nx] == CELL_SERVER and random.random() < 0.05:
+                            new_grid[ny][nx] = CELL_HOT_SERVER
+
+                # Servers occasionally overheat under load
+                if cell == CELL_SERVER and random.random() < 0.02:
+                    new_grid[y][x] = CELL_HOT_SERVER
+
+                # Pollution spreads slowly
+                if cell == CELL_POLLUTED and random.random() < 0.03:
+                    for nx, ny in self._neighbors(x, y):
+                        if self.grid[ny][nx] == CELL_EMPTY:
+                            new_grid[ny][nx] = CELL_POLLUTED
+
+                # Trees naturally clean neighboring pollution
+                if cell == CELL_TREE:
+                    for nx, ny in self._neighbors(x, y):
+                        if self.grid[ny][nx] == CELL_POLLUTED and random.random() < 0.08:
+                            new_grid[ny][nx] = CELL_EMPTY
+
+        self.grid = new_grid
+
+    def _clean_neighbors(self, x: int, y: int) -> int:
+        """Clean polluted cells around (x, y). Returns count cleaned."""
+        cleaned = 0
+        for nx, ny in self._neighbors(x, y):
+            if self.grid[ny][nx] == CELL_POLLUTED:
+                self.grid[ny][nx] = CELL_EMPTY
+                cleaned += 1
+        return cleaned
+
+    def _neighbors(self, x: int, y: int) -> List[Tuple[int, int]]:
+        """Return valid neighboring coordinates (up/down/left/right)."""
+        result = []
+        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < self.width and 0 <= ny < self.height:
+                result.append((nx, ny))
+        return result
+
+    def _get_local_stats(self, x: int, y: int) -> str:
+        """Get stats for a local area around (x, y)."""
+        cells = [self.grid[y][x]]
+        for nx, ny in self._neighbors(x, y):
+            cells.append(self.grid[ny][nx])
+        hot = cells.count(CELL_HOT_SERVER)
+        trees = cells.count(CELL_TREE)
+        polluted = cells.count(CELL_POLLUTED)
+        return f"hot={hot} trees={trees} polluted={polluted}"
+
+    # ── Metrics ───────────────────────────────────────────────────────────────
+    def _compute_observation(self, event: str = "", done: bool = False) -> EcoServerObservation:
+        """Compute all metrics from current grid state."""
+        total = self.width * self.height
+        counts = {i: 0 for i in range(7)}
+        for row in self.grid:
+            for cell in row:
+                counts[cell] = counts.get(cell, 0) + 1
+
+        # Cell counts
+        n_server    = counts[CELL_SERVER]
+        n_tree      = counts[CELL_TREE]
+        n_polluted  = counts[CELL_POLLUTED]
+        n_solar     = counts[CELL_SOLAR]
+        n_hot       = counts[CELL_HOT_SERVER]
+        n_efficient = counts[CELL_EFFICIENT]
+        n_servers_total = n_server + n_hot + n_efficient
+
+        # Metrics
+        pollution       = round(n_polluted / total, 4)
+        green_cover     = round((n_tree + n_solar) / total, 4)
+        temperature     = round(n_hot / max(n_servers_total, 1), 4)
+        energy_usage    = round((n_server * 1.0 + n_hot * 1.5 + n_efficient * 0.6) / max(total, 1), 4)
+        renewable_ratio = round(n_solar / max(n_servers_total, 1), 4)
+        server_load     = round(n_servers_total / total, 4)
+        uptime          = round(1.0 - (n_hot / max(n_servers_total, 1)) * 0.5, 4)
+
+        # Eco score — weighted combination of all metrics
+        eco_score = round(
+            green_cover     * 0.25 +
+            (1 - pollution) * 0.25 +
+            (1 - temperature) * 0.20 +
+            renewable_ratio * 0.15 +
+            uptime          * 0.15,
+            4
         )
 
-# Example usage:
+        # Reward with partial progress signals
+        reward = round(min(1.0, max(0.0,
+            eco_score * 0.5 +
+            (1 - pollution) * 0.2 +
+            renewable_ratio * 0.2 +
+            uptime * 0.1
+        )), 4)
+
+        return EcoServerObservation(
+            grid=self.grid,
+            eco_score=eco_score,
+            pollution=pollution,
+            green_cover=green_cover,
+            temperature=temperature,
+            energy_usage=energy_usage,
+            renewable_ratio=renewable_ratio,
+            server_load=server_load,
+            uptime=uptime,
+            step=self._step,
+            done=done,
+            reward=reward,
+            last_event=event,
+        )
+
+    def _check_win_condition(self) -> bool:
+        """Episode ends early if agent achieves excellent eco score."""
+        if self._obs and self._obs.eco_score >= 0.90:
+            return True
+        return False
+
+    @property
+    def state(self) -> Optional[EcoServerObservation]:
+        return self._obs
+
+
+# ── Quick Test ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Test the environment
-    env = EcoServerEnv()
+    env = EcoServerEnv(width=15, height=15)
     obs = env.reset()
-    print(f"Initial observation: {obs}")
-    
-    # Take a sample action
-    action = EcoServerAction(action_type="plant_tree", x=5, y=5)
-    result = env.step(action)
-    print(f"Action result: {result}")
+    print(f"Initial eco_score: {obs.eco_score}")
+    print(f"Initial pollution:  {obs.pollution}")
+    print(f"Initial temperature: {obs.temperature}")
+    print(f"Initial renewable_ratio: {obs.renewable_ratio}")
+
+    actions = [
+        EcoServerAction("cool_server", 3, 3),
+        EcoServerAction("install_solar", 5, 5),
+        EcoServerAction("plant_tree", 7, 7),
+        EcoServerAction("remove_pollution", 2, 2),
+        EcoServerAction("upgrade_efficiency", 4, 4),
+        EcoServerAction("monitor", 7, 7),
+    ]
+
+    for action in actions:
+        result = env.step(action)
+        print(f"\n{result.last_event}")
+        print(f"  eco_score={result.eco_score} pollution={result.pollution} "
+              f"temp={result.temperature} renewable={result.renewable_ratio}")
