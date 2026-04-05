@@ -1,0 +1,166 @@
+name: eco-server-environment
+version: "1.0.0"
+description: >
+  A real-world server ecosystem management environment where an AI agent
+  must balance energy usage, pollution control, and infrastructure
+  development to maximize ecological sustainability of a server grid.
+
+author: Chinmai1430
+tags:
+  - openenv
+  - sustainability
+  - resource-management
+  - real-world
+  - grid-world
+
+# ── Endpoints ──────────────────────────────────────────────────────────────────
+base_url: "https://chinmai1430-eco-server-environment.hf.space"
+endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  health: GET /health
+
+# ── Action Space ───────────────────────────────────────────────────────────────
+action_space:
+  type: object
+  required:
+    - action_type
+  properties:
+    action_type:
+      type: string
+      enum:
+        - plant_tree
+        - remove_pollution
+        - monitor
+        - develop
+      description: >
+        Type of action to perform.
+        plant_tree: Plants a tree at (x,y) to improve eco score.
+        remove_pollution: Cleans pollution at (x,y).
+        monitor: Observes current environment state.
+        develop: Develops infrastructure at (x,y) - reduces eco score.
+    x:
+      type: integer
+      minimum: 0
+      maximum: 14
+      description: X coordinate on the 15x15 grid (optional for monitor)
+    y:
+      type: integer
+      minimum: 0
+      maximum: 14
+      description: Y coordinate on the 15x15 grid (optional for monitor)
+
+# ── Observation Space ──────────────────────────────────────────────────────────
+observation_space:
+  type: object
+  properties:
+    grid:
+      type: array
+      description: 15x15 grid representing the ecosystem state
+    eco_score:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: Overall ecological health score (higher is better)
+    pollution:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: Current pollution level (lower is better)
+    step:
+      type: integer
+      description: Current step number in the episode
+    done:
+      type: boolean
+      description: Whether the episode has ended
+    reward:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: Reward for the last action taken
+
+# ── Reward ─────────────────────────────────────────────────────────────────────
+reward:
+  range: [0.0, 1.0]
+  description: >
+    Meaningful reward with partial progress signals.
+    Computed as: eco_score * 0.4 - pollution * 0.2 + action_bonus.
+    Action bonuses: plant_tree=+0.15, remove_pollution=+0.20,
+    monitor=+0.05, develop=-0.10.
+    Penalizes destructive actions and rewards ecological improvement.
+
+# ── Tasks ──────────────────────────────────────────────────────────────────────
+tasks:
+  - id: task_easy
+    name: Basic Environmental Monitoring
+    difficulty: easy
+    description: >
+      Monitor the environment 5 times without taking any destructive
+      (develop) actions. Score is based on number of monitor steps taken.
+    max_steps: 10
+    success_criteria: >
+      Agent uses monitor action at least 5 times without causing
+      eco_score to drop below 0.3.
+    reward_range: [0.0, 1.0]
+    example_actions:
+      - {action_type: "monitor"}
+      - {action_type: "monitor"}
+      - {action_type: "monitor"}
+      - {action_type: "monitor"}
+      - {action_type: "monitor"}
+
+  - id: task_medium
+    name: Pollution Control
+    difficulty: medium
+    description: >
+      Reduce pollution below 0.7 while maintaining eco_score above 0.5
+      within 10 steps. Requires strategic use of remove_pollution and
+      plant_tree actions.
+    max_steps: 10
+    success_criteria: >
+      pollution < 0.7 AND eco_score > 0.5 at end of episode.
+      Score is average of (1 - pollution/0.7) and (eco_score/0.5).
+    reward_range: [0.0, 1.0]
+    example_actions:
+      - {action_type: "remove_pollution", x: 5, y: 5}
+      - {action_type: "plant_tree", x: 7, y: 7}
+      - {action_type: "remove_pollution", x: 3, y: 3}
+
+  - id: task_hard
+    name: Full Ecosystem Recovery
+    difficulty: hard
+    description: >
+      Achieve an eco_score above 0.85 within 20 steps starting from
+      a degraded environment state. Requires optimal sequencing of
+      plant_tree and remove_pollution actions with minimal develop usage.
+    max_steps: 20
+    success_criteria: >
+      eco_score >= 0.85 within 20 steps.
+      Efficiency bonus awarded for completing in fewer steps.
+    reward_range: [0.0, 1.0]
+    example_actions:
+      - {action_type: "plant_tree", x: 7, y: 7}
+      - {action_type: "remove_pollution", x: 5, y: 5}
+      - {action_type: "plant_tree", x: 10, y: 10}
+
+# ── Baseline Scores ────────────────────────────────────────────────────────────
+baseline_scores:
+  task_easy: 0.90
+  task_medium: 0.65
+  task_hard: 0.42
+
+# ── Setup Instructions ─────────────────────────────────────────────────────────
+setup:
+  python_version: "3.11"
+  install: "pip install -r requirements.txt"
+  run: "python app.py"
+  docker: "docker build -t eco-server . && docker run -p 7860:7860 eco-server"
+
+# ── Environment Metadata ───────────────────────────────────────────────────────
+metadata:
+  framework: FastAPI
+  grid_size: "15x15"
+  episode_max_steps: 20
+  real_world_task: true
+  huggingface_space: "https://huggingface.co/spaces/Chinmai1430/eco-server-environment"
