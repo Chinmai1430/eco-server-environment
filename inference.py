@@ -147,10 +147,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["server", "demo"], default="server",
-                        help="'server' starts the FastAPI server (default), 'demo' runs the CLI demo")
+    parser.add_argument("--mode", choices=["server", "demo"], default="server")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--port", type=int, default=7860)  # ← back to 7860
     args = parser.parse_args()
 
     if args.mode == "demo":
